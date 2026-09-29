@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev — The cheap brain that decides · TypeSafe</title>
+<meta name="description" content="LLM writes. Jev decides. Code acts. A specialized decision model — Choice, Score, Noul — not a chatbot.">
+<style>
+  :root {
+    --bg: #050506;
+    --bg-elev: #0c0c0f;
+    --pink: #ff2d95;
+    --pink-hot: #ff1493;
+    --fuchsia: #e011a7;
+    --magenta: #ff00aa;
+    --pink-soft: #ff6bb5;
+    --pink-glow: rgba(255, 45, 149, 0.45);
+    --pink-dim: rgba(255, 45, 149, 0.12);
+    --pink-line: rgba(255, 45, 149, 0.28);
+    --text: #f5f0f4;
+    --muted: #a898a4;
+    --border: rgba(255, 45, 149, 0.22);
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --display: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Background grid + ambient glows */
+  .bg-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255, 20, 147, 0.18), transparent 55%),
+      radial-gradient(ellipse 40% 30% at 85% 60%, rgba(224, 17, 167, 0.08), transparent 50%),
+      radial-gradient(ellipse 35% 25% at 10% 80%, rgba(255, 45, 149, 0.07), transparent 50%),
+      var(--bg);
+  }
+  .bg-grid {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      linear-gradient(var(--pink-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--pink-line) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 10%, transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 10%, transparent 70%);
+    opacity: 0.55;
+    animation: gridDrift 28s linear infinite;
+  }
+  @keyframes gridDrift {
+    from { background-position: 0 0; }
+    to { background-position: 48px 48px; }
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 1.25rem 4rem;
+  }
+
+  /* Nav */
+  nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 0 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  nav .brand {
+    color: var(--pink-soft);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  nav .brand-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--pink);
+    box-shadow: 0 0 12px var(--pink-glow);
+    animation: pulseDot 2.2s ease-in-out infinite;
+  }
+  nav .meta { opacity: 0.7; }
+
+  /* Reveal */
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.7s cubic-bezier(.22,1,.36,1), transform 0.7s cubic-bezier(.22,1,.36,1);
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  /* Above-the-fold: visible immediately so first paint / headless shots aren't blank */
+  .hero .reveal {
+    opacity: 1;
+    transform: translateY(0);
+    animation: heroIn 0.85s cubic-bezier(.22,1,.36,1) both;
+  }
+  .hero .reveal-delay-1 { animation-delay: 0.08s; }
+  .hero .reveal-delay-2 { animation-delay: 0.16s; }
+  .hero .reveal-delay-3 { animation-delay: 0.24s; }
+  .hero .reveal-delay-4 { animation-delay: 0.32s; }
+  @keyframes heroIn {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .reveal-delay-1 { transition-delay: 0.1s; }
+  .reveal-delay-2 { transition-delay: 0.2s; }
+  .reveal-delay-3 { transition-delay: 0.3s; }
+  .reveal-delay-4 { transition-delay: 0.4s; }
+
+  /* Hero */
+  .hero {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 2rem 2.5rem;
+    align-items: center;
+    padding: 2.5rem 0 3.5rem;
+    min-height: min(78vh, 720px);
+  }
+  @media (max-width: 840px) {
+    .hero {
+      grid-template-columns: 1fr;
+      min-height: auto;
+      padding: 1.75rem 0 2.5rem;
+      gap: 1.5rem;
+    }
+    .hero-visual { order: -1; max-width: 340px; margin: 0 auto; }
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--pink);
+    margin-bottom: 1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 28px; height: 1px;
+    background: var(--pink);
+    box-shadow: 0 0 8px var(--pink-glow);
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(2.35rem, 5.2vw, 3.65rem);
+    font-weight: 700;
+    letter-spacing: -0.045em;
+    line-height: 1.05;
+    margin-bottom: 1.15rem;
+  }
+  h1 .accent {
+    background: linear-gradient(105deg, var(--pink-soft), var(--pink-hot) 45%, var(--fuchsia));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: none;
+  }
+
+  .lede {
+    font-size: clamp(1.02rem, 2vw, 1.18rem);
+    color: var(--muted);
+    max-width: 34ch;
+    margin-bottom: 1.75rem;
+  }
+  .lede strong { color: var(--text); font-weight: 600; }
+
+  .claim-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    margin-bottom: 1.5rem;
+  }
+  .claim {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--pink-dim);
+    color: var(--pink-soft);
+  }
+  .claim em { font-style: normal; color: var(--text); }
+
+  .mode-note {
+    font-size: 0.82rem;
+    color: var(--muted);
+    border-left: 2px solid var(--pink);
+    padding-left: 0.85rem;
+    max-width: 42ch;
+  }
+  .mode-note code {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--pink-soft);
+  }
+
+  /* Brain visual */
+  .hero-visual {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1.05;
+  }
+  .brain-frame {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 1.25rem;
+    border: 1px solid var(--border);
+    background:
+      radial-gradient(circle at 50% 45%, rgba(255, 45, 149, 0.16), transparent 55%),
+      var(--bg-elev);
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(255, 45, 149, 0.06),
+      0 24px 80px rgba(0, 0, 0, 0.55),
+      inset 0 0 60px rgba(255, 45, 149, 0.05);
+  }
+  .brain-frame::before {
+    content: "";
+    position: absolute;
+    inset: -40%;
+    background: conic-gradient(from 0deg, transparent, rgba(255,45,149,0.1), transparent 28%, transparent 55%, rgba(224,17,167,0.07), transparent 70%);
+    animation: spinGlow 12s linear infinite;
+    opacity: 0.8;
+  }
+  @keyframes spinGlow {
+    to { transform: rotate(360deg); }
+  }
+
+  .brain-svg {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .mode-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    fill: var(--pink-soft);
+    text-transform: uppercase;
+  }
+  .mode-sub {
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 0.06em;
+    fill: var(--muted);
+  }
+
+  @keyframes pulseDot {
+    0%, 100% { transform: scale(1); opacity: 0.85; box-shadow: 0 0 8px var(--pink-glow); }
+    50% { transform: scale(1.35); opacity: 1; box-shadow: 0 0 18px var(--pink-glow); }
+  }
+
+  /* Brain upgrade — richer motion */
+  .brain-frame {
+    position: relative;
+  }
+  .brain-scan {
+    position: absolute;
+    inset: 8% 12%;
+    z-index: 2;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(255, 45, 149, 0.0) 42%,
+      rgba(255, 45, 149, 0.18) 50%,
+      rgba(255, 45, 149, 0.0) 58%,
+      transparent 100%
+    );
+    animation: scanSweep 3.8s ease-in-out infinite;
+    mix-blend-mode: screen;
+    opacity: 0.85;
+  }
+  @keyframes scanSweep {
+    0% { transform: translateY(-55%); opacity: 0; }
+    12% { opacity: 0.9; }
+    88% { opacity: 0.9; }
+    100% { transform: translateY(55%); opacity: 0; }
+  }
+
+  .brain-glow {
+    animation: brainBreathe 3.2s ease-in-out infinite;
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+  @keyframes brainBreathe {
+    0%, 100% {
+      opacity: 0.5;
+      transform: scale(0.96);
+      filter: drop-shadow(0 0 8px rgba(255,45,149,0.45));
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.04);
+      filter: drop-shadow(0 0 28px rgba(255,45,149,1));
+    }
+  }
+
+  .hem-left {
+    animation: hemPulseL 2.8s ease-in-out infinite;
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+  .hem-right {
+    animation: hemPulseR 3.6s ease-in-out infinite;
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+  @keyframes hemPulseL {
+    0%, 100% { fill-opacity: 0.16; stroke-opacity: 0.85; }
+    50% { fill-opacity: 0.32; stroke-opacity: 1; filter: drop-shadow(0 0 10px rgba(255,45,149,0.8)); }
+  }
+  @keyframes hemPulseR {
+    0%, 100% { fill-opacity: 0.08; stroke-opacity: 0.55; }
+    50% { fill-opacity: 0.16; stroke-opacity: 0.8; }
+  }
+
+  .brain-outline {
+    stroke-dasharray: 7 5;
+    animation: dashFlow 14s linear infinite;
+  }
+  @keyframes dashFlow {
+    to { stroke-dashoffset: -320; }
+  }
+
+  .sulcus {
+    stroke-dasharray: 2 6;
+    animation: sulcusFlow 9s linear infinite;
+    opacity: 0.55;
+  }
+  @keyframes sulcusFlow {
+    to { stroke-dashoffset: -80; }
+  }
+
+  .node-pulse {
+    animation: nodePulse 2.1s ease-in-out infinite;
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+  .node-pulse:nth-child(odd) { animation-delay: 0.35s; }
+  .node-pulse:nth-child(3n) { animation-delay: 0.7s; }
+  .node-pulse:nth-child(4n) { animation-delay: 1.05s; }
+  @keyframes nodePulse {
+    0%, 100% { opacity: 0.45; r: 3; }
+    50% { opacity: 1; r: 5.2; }
+  }
+
+  .node-ring {
+    fill: none;
+    stroke: #ff2d95;
+    stroke-width: 1;
+    opacity: 0;
+    transform-origin: center;
+    transform-box: fill-box;
+    animation: ringFlash 2.8s ease-out infinite;
+  }
+  .node-ring.d2 { animation-delay: 0.9s; }
+  .node-ring.d3 { animation-delay: 1.7s; }
+  @keyframes ringFlash {
+    0% { opacity: 0.7; r: 4; stroke-width: 1.6; }
+    70% { opacity: 0; r: 16; stroke-width: 0.4; }
+    100% { opacity: 0; r: 16; }
+  }
+
+  .neural-flow {
+    stroke-dasharray: 3 9;
+    animation: neuralDash 2.2s linear infinite;
+  }
+  .neural-flow.rev { animation-direction: reverse; animation-duration: 2.9s; }
+  @keyframes neuralDash {
+    to { stroke-dashoffset: -72; }
+  }
+
+  .signal {
+    filter: url(#softGlow);
+  }
+
+  .core-nucleus {
+    animation: nucleusBeat 1.8s ease-in-out infinite;
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+  @keyframes nucleusBeat {
+    0%, 100% { opacity: 0.55; transform: scale(0.92); }
+    50% { opacity: 1; transform: scale(1.12); }
+  }
+
+  .orbit-token {
+    font-family: var(--mono);
+    font-size: 7.5px;
+    letter-spacing: 0.1em;
+    fill: var(--pink-soft);
+    text-transform: uppercase;
+  }
+  .orbit-group {
+    transform-origin: 200px 210px;
+    animation: orbitSpin 22s linear infinite;
+  }
+  .orbit-group.rev {
+    animation-direction: reverse;
+    animation-duration: 28s;
+  }
+  @keyframes orbitSpin {
+    to { transform: rotate(360deg); }
+  }
+  .orbit-dot {
+    animation: orbitDotPulse 2s ease-in-out infinite;
+  }
+  @keyframes orbitDotPulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+
+  .particle {
+    animation: particleDrift 3.4s ease-in-out infinite;
+  }
+  .particle:nth-child(2) { animation-delay: 0.55s; }
+  .particle:nth-child(3) { animation-delay: 1.1s; }
+  .particle:nth-child(4) { animation-delay: 1.65s; }
+  .particle:nth-child(5) { animation-delay: 2.2s; }
+  .particle:nth-child(6) { animation-delay: 2.75s; }
+  @keyframes particleDrift {
+    0% { opacity: 0; transform: translateY(8px) scale(0.6); }
+    18% { opacity: 1; }
+    75% { opacity: 0.85; }
+    100% { opacity: 0; transform: translateY(-28px) scale(1.2); }
+  }
+
+  .decide-flash {
+    animation: decideFlash 4.5s ease-in-out infinite;
+  }
+  @keyframes decideFlash {
+    0%, 70%, 100% { opacity: 0; }
+    78% { opacity: 0.9; }
+    86% { opacity: 0.15; }
+    92% { opacity: 0.7; }
+  }
+
+  /* Sections */
+  section { padding: 3.25rem 0 0.5rem; }
+  .section-label {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--pink);
+    margin-bottom: 0.75rem;
+  }
+  h2 {
+    font-size: clamp(1.55rem, 3.2vw, 2.1rem);
+    letter-spacing: -0.035em;
+    font-weight: 700;
+    margin-bottom: 0.85rem;
+    line-height: 1.15;
+  }
+  .section-copy {
+    color: var(--muted);
+    max-width: 56ch;
+    margin-bottom: 1.75rem;
+    font-size: 1.02rem;
+  }
+
+  /* What Jev is cards */
+  .trio {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+  }
+  @media (max-width: 720px) {
+    .trio { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: linear-gradient(160deg, rgba(255,45,149,0.08), transparent 60%), var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    padding: 1.35rem 1.25rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.35s, transform 0.35s, box-shadow 0.35s;
+  }
+  .card:hover {
+    border-color: rgba(255, 45, 149, 0.55);
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px rgba(255, 45, 149, 0.12);
+  }
+  .card::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--pink), transparent);
+    opacity: 0.55;
+  }
+  .card h3 {
+    font-family: var(--mono);
+    font-size: 0.95rem;
+    letter-spacing: 0.04em;
+    color: var(--pink-soft);
+    margin-bottom: 0.45rem;
+  }
+  .card p {
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .card .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--pink);
+    margin-bottom: 0.65rem;
+    opacity: 0.9;
+  }
+
+  /* Schematic flow */
+  .schematic {
+    margin-top: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 1.15rem;
+    background: var(--bg-elev);
+    padding: 1.75rem 1.25rem 1.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .schematic::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,45,149,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,45,149,0.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  .flow-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    position: relative;
+    z-index: 1;
+  }
+  .flow-box {
+    fill: rgba(12, 12, 15, 0.95);
+    stroke: var(--pink);
+    stroke-width: 1.25;
+  }
+  .flow-box.decide {
+    fill: rgba(255, 45, 149, 0.12);
+    stroke: var(--pink-hot);
+    stroke-width: 1.75;
+    filter: drop-shadow(0 0 10px rgba(255,45,149,0.35));
+  }
+  .flow-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    fill: var(--text);
+  }
+  .flow-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    fill: var(--muted);
+  }
+  .flow-role {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    fill: var(--pink);
+    text-transform: uppercase;
+  }
+  .connector {
+    fill: none;
+    stroke: rgba(255, 45, 149, 0.45);
+    stroke-width: 1.5;
+    stroke-dasharray: 6 8;
+    animation: connectorDash 1.8s linear infinite;
+  }
+  @keyframes connectorDash {
+    to { stroke-dashoffset: -28; }
+  }
+  .travel-dot {
+    fill: var(--pink-hot);
+    filter: drop-shadow(0 0 6px var(--pink-glow));
+  }
+
+  .thesis {
+    text-align: center;
+    margin-top: 1.35rem;
+    font-family: var(--mono);
+    font-size: clamp(0.78rem, 1.8vw, 0.92rem);
+    letter-spacing: 0.04em;
+    color: var(--pink-soft);
+    position: relative;
+    z-index: 1;
+  }
+  .thesis span { color: var(--muted); }
+
+  /* Spec strip */
+  .spec-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+  @media (max-width: 720px) {
+    .spec-strip { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 420px) {
+    .spec-strip { grid-template-columns: 1fr; }
+  }
+  .spec {
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
+    padding: 1.15rem 1rem;
+    background: rgba(255, 45, 149, 0.04);
+    text-align: center;
+  }
+  .spec .num {
+    font-family: var(--mono);
+    font-size: clamp(1.15rem, 2.8vw, 1.45rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--pink-soft);
+    margin-bottom: 0.35rem;
+    background: linear-gradient(90deg, var(--pink-soft), #fff, var(--pink-hot), var(--pink-soft));
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer 4.5s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0%, 100% { background-position: 100% 0; }
+    50% { background-position: 0% 0; }
+  }
+  .spec .desc {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  /* Chips */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.03em;
+    padding: 0.55rem 0.95rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    color: var(--text);
+    transition: border-color 0.3s, box-shadow 0.3s, color 0.3s;
+  }
+  .chip:hover {
+    border-color: var(--pink);
+    color: var(--pink-soft);
+    box-shadow: 0 0 20px rgba(255, 45, 149, 0.18);
+  }
+  .chip::before {
+    content: "▸ ";
+    color: var(--pink);
+    font-size: 0.7em;
+  }
+
+  /* Footer */
+  footer {
+    margin-top: 4rem;
+    padding: 2rem 0 1rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  footer a {
+    color: var(--pink-soft);
+    text-decoration: none;
+  }
+  footer a:hover { text-decoration: underline; }
+  footer .credit strong { color: var(--text); font-weight: 600; }
+  footer .links { display: flex; flex-wrap: wrap; gap: 1rem; }
+
+  @media (max-width: 390px) {
+    .wrap { padding: 0 0.9rem 3rem; }
+    h1 { font-size: 2.05rem; }
+    .claim { font-size: 0.65rem; }
+    .schematic { padding: 1.1rem 0.6rem 1rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    .reveal { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="bg-layer" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="#top">
+        <span class="brand-dot" aria-hidden="true"></span>
+        TypeSafe · Jev
+      </a>
+      <span class="meta">decision layer · not a chatbot</span>
+    </nav>
+
+    <!-- HERO -->
+    <header class="hero" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow reveal">Specialized decision model</p>
+        <h1 class="reveal reveal-delay-1">
+          Jev is not a chatbot.<br>
+          <span class="accent">The cheap brain that decides.</span>
+        </h1>
+        <p class="lede reveal reveal-delay-2">
+          <strong>LLM writes. Jev decides. Code acts.</strong>
+          Stop burning frontier tokens on yes/no. Hand Jev state + typed questions — get choices, scores, and calibrated confidence. No chat. No generation.
+        </p>
+        <div class="claim-row reveal reveal-delay-3">
+          <span class="claim"><em>WRITE</em> · LLM</span>
+          <span class="claim"><em>DECIDE</em> · Jev</span>
+          <span class="claim"><em>ACT</em> · code</span>
+        </div>
+        <p class="mode-note reveal reveal-delay-4">
+          Abstract brain: <code>System One</code> = decide (Jev) · <code>System Two</code> = write (LLM).
+          Jev is the decision layer — not Claude’s second hemisphere.
+        </p>
+      </div>
+
+      <div class="hero-visual reveal reveal-delay-2" aria-hidden="true">
+        <div class="brain-frame">
+          <div class="brain-scan" aria-hidden="true"></div>
+          <svg class="brain-svg" viewBox="0 0 400 420" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="brainFill" cx="50%" cy="45%" r="55%">
+                <stop offset="0%" stop-color="#ff2d95" stop-opacity="0.42"/>
+                <stop offset="45%" stop-color="#e011a7" stop-opacity="0.16"/>
+                <stop offset="100%" stop-color="#050506" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#ff6bb5" stop-opacity="0.95"/>
+                <stop offset="55%" stop-color="#ff1493" stop-opacity="0.45"/>
+                <stop offset="100%" stop-color="#ff2d95" stop-opacity="0"/>
+              </radialGradient>
+              <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="4" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+              <filter id="hotGlow" x="-80%" y="-80%" width="260%" height="260%">
+                <feGaussianBlur stdDeviation="6" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+              <linearGradient id="hemL" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#ff6bb5"/>
+                <stop offset="100%" stop-color="#ff1493"/>
+              </linearGradient>
+              <linearGradient id="hemR" x1="1" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#ff2d95"/>
+                <stop offset="100%" stop-color="#c40d8c"/>
+              </linearGradient>
+              <!-- neural signal paths -->
+              <path id="sigL1" d="M128 148 C155 165, 170 175, 195 185"/>
+              <path id="sigL2" d="M112 198 C150 205, 170 210, 195 215"/>
+              <path id="sigL3" d="M122 248 C155 245, 175 240, 195 245"/>
+              <path id="sigR1" d="M272 148 C245 165, 230 175, 205 185"/>
+              <path id="sigR2" d="M288 198 C250 205, 230 210, 205 215"/>
+              <path id="sigR3" d="M278 248 C245 245, 225 240, 205 245"/>
+              <path id="sigCross" d="M130 200 C165 185, 235 185, 270 200"/>
+            </defs>
+
+            <!-- schematic grid ticks -->
+            <g stroke="rgba(255,45,149,0.15)" stroke-width="0.6">
+              <line x1="40" y1="40" x2="360" y2="40"/>
+              <line x1="40" y1="40" x2="40" y2="60"/>
+              <line x1="360" y1="40" x2="360" y2="60"/>
+              <line x1="40" y1="380" x2="360" y2="380"/>
+            </g>
+            <text x="48" y="34" class="mode-sub">SCHEMATIC · DECISION CORE</text>
+            <text x="250" y="34" class="mode-sub" fill="#ff2d95" style="fill:#ff2d95">LIVE · FIRING</text>
+
+            <!-- orbiting decision tokens -->
+            <g class="orbit-group">
+              <circle cx="200" cy="78" r="2.2" fill="#ff2d95" class="orbit-dot" filter="url(#softGlow)"/>
+              <text class="orbit-token" x="200" y="70" text-anchor="middle">Choice</text>
+              <circle cx="322" cy="210" r="2.2" fill="#ff6bb5" class="orbit-dot" filter="url(#softGlow)"/>
+              <text class="orbit-token" x="322" y="202" text-anchor="middle">Score</text>
+              <circle cx="200" cy="328" r="2.2" fill="#e011a7" class="orbit-dot" filter="url(#softGlow)"/>
+              <text class="orbit-token" x="200" y="318" text-anchor="middle">Noul</text>
+            </g>
+            <g class="orbit-group rev" opacity="0.55">
+              <circle cx="78" cy="210" r="1.6" fill="#ff1493" class="orbit-dot"/>
+              <circle cx="260" cy="100" r="1.4" fill="#ff6bb5" class="orbit-dot"/>
+              <circle cx="140" cy="320" r="1.5" fill="#ff2d95" class="orbit-dot"/>
+            </g>
+
+            <!-- ambient particles -->
+            <g filter="url(#softGlow)">
+              <circle class="particle" cx="90" cy="120" r="2" fill="#ff2d95"/>
+              <circle class="particle" cx="310" cy="100" r="1.8" fill="#ff6bb5"/>
+              <circle class="particle" cx="70" cy="280" r="1.5" fill="#e011a7"/>
+              <circle class="particle" cx="330" cy="300" r="2" fill="#ff1493"/>
+              <circle class="particle" cx="55" cy="190" r="1.3" fill="#ff6bb5"/>
+              <circle class="particle" cx="345" cy="170" r="1.4" fill="#ff2d95"/>
+            </g>
+
+            <!-- glow under brain -->
+            <ellipse class="brain-glow" cx="200" cy="210" rx="122" ry="104" fill="url(#brainFill)"/>
+
+            <!-- Left hemisphere — System One / Decide (Jev) -->
+            <path class="brain-outline hem-left" d="M195 95
+              C165 88, 120 95, 100 130
+              C78 170, 75 210, 88 250
+              C100 285, 130 310, 165 320
+              C180 325, 190 310, 195 290
+              Z"
+              fill="url(#hemL)" fill-opacity="0.22"
+              stroke="#ff2d95" stroke-width="1.7"/>
+
+            <!-- Right hemisphere — System Two / Write (LLM) -->
+            <path class="brain-outline hem-right" d="M205 95
+              C235 88, 280 95, 300 130
+              C322 170, 325 210, 312 250
+              C300 285, 270 310, 235 320
+              C220 325, 210 310, 205 290
+              Z"
+              fill="url(#hemR)" fill-opacity="0.12"
+              stroke="#ff6bb5" stroke-width="1.4" stroke-opacity="0.85"/>
+
+            <!-- sulci / fold detail -->
+            <g class="sulcus" fill="none" stroke="#ff2d95" stroke-width="0.9" opacity="0.5">
+              <path d="M145 130 C155 155, 150 175, 140 195"/>
+              <path d="M160 145 C168 170, 165 200, 155 225"/>
+              <path d="M135 220 C148 240, 155 255, 150 275"/>
+            </g>
+            <g class="sulcus" fill="none" stroke="#ff6bb5" stroke-width="0.8" opacity="0.35">
+              <path d="M255 130 C245 155, 250 175, 260 195"/>
+              <path d="M240 145 C232 170, 235 200, 245 225"/>
+              <path d="M265 220 C252 240, 245 255, 250 275"/>
+            </g>
+
+            <!-- midline -->
+            <path d="M200 100 C198 160, 202 230, 200 300"
+              fill="none" stroke="rgba(255,45,149,0.55)" stroke-width="1.1" stroke-dasharray="3 5"
+              class="neural-flow"/>
+
+            <!-- neural links -->
+            <g class="neural-flow" stroke="#ff2d95" stroke-width="1.15" fill="none" opacity="0.85">
+              <path d="M130 150 C155 165, 170 175, 195 185"/>
+              <path d="M115 200 C150 205, 170 210, 195 215"/>
+              <path d="M125 250 C155 245, 175 240, 195 245"/>
+            </g>
+            <g class="neural-flow rev" stroke="#ff6bb5" stroke-width="1" fill="none" opacity="0.5">
+              <path d="M270 150 C245 165, 230 175, 205 185"/>
+              <path d="M285 200 C250 205, 230 210, 205 215"/>
+              <path d="M275 250 C245 245, 225 240, 205 245"/>
+            </g>
+            <!-- cross-hemisphere decision bridge -->
+            <path class="neural-flow" d="M130 200 C165 185, 235 185, 270 200"
+              fill="none" stroke="#ff1493" stroke-width="1.2" opacity="0.65"/>
+
+            <!-- traveling signal packets -->
+            <g class="signal">
+              <circle r="3.2" fill="#ff2d95">
+                <animateMotion dur="1.6s" repeatCount="indefinite"><mpath href="#sigL1"/></animateMotion>
+              </circle>
+              <circle r="2.6" fill="#ff6bb5">
+                <animateMotion dur="1.9s" begin="0.4s" repeatCount="indefinite"><mpath href="#sigL2"/></animateMotion>
+              </circle>
+              <circle r="2.8" fill="#ff1493">
+                <animateMotion dur="1.7s" begin="0.8s" repeatCount="indefinite"><mpath href="#sigL3"/></animateMotion>
+              </circle>
+              <circle r="2.4" fill="#ff6bb5" opacity="0.75">
+                <animateMotion dur="2.1s" begin="0.2s" repeatCount="indefinite"><mpath href="#sigR1"/></animateMotion>
+              </circle>
+              <circle r="2.2" fill="#e011a7" opacity="0.7">
+                <animateMotion dur="2.3s" begin="0.9s" repeatCount="indefinite"><mpath href="#sigR2"/></animateMotion>
+              </circle>
+              <circle r="3" fill="#ffffff">
+                <animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite"><mpath href="#sigCross"/></animateMotion>
+                <animate attributeName="opacity" values="0.2;1;0.2" dur="2.4s" begin="1.2s" repeatCount="indefinite"/>
+              </circle>
+            </g>
+
+            <!-- core nucleus (decision point) -->
+            <circle class="core-nucleus" cx="200" cy="210" r="9" fill="url(#coreGlow)" filter="url(#hotGlow)"/>
+            <circle class="decide-flash" cx="200" cy="210" r="22" fill="none" stroke="#ff2d95" stroke-width="1.4"/>
+            <circle class="decide-flash" cx="200" cy="210" r="34" fill="none" stroke="#ff6bb5" stroke-width="0.8" style="animation-delay:0.15s"/>
+
+            <!-- nodes left (Jev / decide) -->
+            <g fill="#ff2d95" filter="url(#softGlow)">
+              <circle class="node-pulse" cx="128" cy="148" r="3.5"/>
+              <circle class="node-pulse" cx="112" cy="198" r="4"/>
+              <circle class="node-pulse" cx="122" cy="248" r="3.2"/>
+              <circle class="node-pulse" cx="155" cy="175" r="2.8"/>
+              <circle class="node-pulse" cx="160" cy="230" r="3"/>
+              <circle class="node-pulse" cx="175" cy="280" r="2.6"/>
+            </g>
+            <!-- synaptic flash rings on hot Jev nodes -->
+            <circle class="node-ring" cx="112" cy="198" r="4"/>
+            <circle class="node-ring d2" cx="128" cy="148" r="3.5"/>
+            <circle class="node-ring d3" cx="122" cy="248" r="3.2"/>
+
+            <!-- nodes right (write) dimmer -->
+            <g fill="#ff6bb5" opacity="0.65" filter="url(#softGlow)">
+              <circle class="node-pulse" cx="272" cy="148" r="3"/>
+              <circle class="node-pulse" cx="288" cy="198" r="3.5"/>
+              <circle class="node-pulse" cx="278" cy="248" r="2.8"/>
+              <circle class="node-pulse" cx="245" cy="175" r="2.5"/>
+              <circle class="node-pulse" cx="240" cy="230" r="2.8"/>
+            </g>
+
+            <!-- labels -->
+            <text x="78" y="345" class="mode-label">System One</text>
+            <text x="78" y="360" class="mode-sub">DECIDE · Jev</text>
+            <text x="248" y="345" class="mode-label">System Two</text>
+            <text x="248" y="360" class="mode-sub">WRITE · LLM</text>
+
+            <!-- accent underline under System One -->
+            <line x1="78" y1="368" x2="168" y2="368" stroke="#ff2d95" stroke-width="1.5"
+              class="brain-glow"/>
+          </svg>
+        </div>
+      </div>
+    </header>
+
+    <!-- WHAT JEV IS -->
+    <section id="what">
+      <p class="section-label reveal">What Jev is</p>
+      <h2 class="reveal reveal-delay-1">State + typed questions.<br>Structured answers. Nothing else.</h2>
+      <p class="section-copy reveal reveal-delay-2">
+        Jev does not write text or code. You send what’s true right now and explicit questions.
+        It returns branches you can execute in Python — Choice, Score, or Noul.
+      </p>
+      <div class="trio">
+        <article class="card reveal reveal-delay-1">
+          <span class="tag">Choice</span>
+          <h3>Pick one</h3>
+          <p>Which worker, which folder, which next action. Labeled options. One winner.</p>
+        </article>
+        <article class="card reveal reveal-delay-2">
+          <span class="tag">Score</span>
+          <h3>Rate it</h3>
+          <p>Ordered labels — urgency, quality, lead heat. A calibrated scale, not a paragraph.</p>
+        </article>
+        <article class="card reveal reveal-delay-3">
+          <span class="tag">Noul</span>
+          <h3>Yes / no + confidence</h3>
+          <p>Publish? Escalate? Delete? Binary with calibrated probability — not vibes.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- SCHEMATIC -->
+    <section id="flow">
+      <p class="section-label reveal">Architecture</p>
+      <h2 class="reveal reveal-delay-1">Three jobs. Stop mashing them into one API call.</h2>
+      <p class="section-copy reveal reveal-delay-2">
+        If it creates → LLM. If it picks / scores / gates → Jev. If it does the thing → code.
+      </p>
+
+      <div class="schematic reveal reveal-delay-2">
+        <svg class="flow-svg" viewBox="0 0 960 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Flow: WRITE LLM to DECIDE Jev to ACT code">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#ff2d95"/>
+            </marker>
+            <!-- motion paths for traveling dots -->
+            <path id="path1" d="M290 100 C330 100, 350 100, 390 100"/>
+            <path id="path2" d="M570 100 C610 100, 630 100, 670 100"/>
+          </defs>
+
+          <!-- Column 1 WRITE -->
+          <rect class="flow-box" x="40" y="36" width="240" height="128" rx="14"/>
+          <text class="flow-role" x="160" y="62" text-anchor="middle">Write</text>
+          <text class="flow-title" x="160" y="95" text-anchor="middle">LLM</text>
+          <text class="flow-sub" x="160" y="120" text-anchor="middle">text · code · plans</text>
+          <text class="flow-sub" x="160" y="138" text-anchor="middle">prose &amp; generation</text>
+
+          <!-- Column 2 DECIDE -->
+          <rect class="flow-box decide" x="360" y="36" width="240" height="128" rx="14"/>
+          <text class="flow-role" x="480" y="62" text-anchor="middle">Decide</text>
+          <text class="flow-title" x="480" y="95" text-anchor="middle">JEV</text>
+          <text class="flow-sub" x="480" y="120" text-anchor="middle">Choice · Score · Noul</text>
+          <text class="flow-sub" x="480" y="138" text-anchor="middle">state + typed questions</text>
+
+          <!-- Column 3 ACT -->
+          <rect class="flow-box" x="680" y="36" width="240" height="128" rx="14"/>
+          <text class="flow-role" x="800" y="62" text-anchor="middle">Act</text>
+          <text class="flow-title" x="800" y="95" text-anchor="middle">CODE</text>
+          <text class="flow-sub" x="800" y="120" text-anchor="middle">tools · APIs · browser</text>
+          <text class="flow-sub" x="800" y="138" text-anchor="middle">execute the branch</text>
+
+          <!-- connectors -->
+          <path class="connector" d="M290 100 L390 100" marker-end="url(#arrow)"/>
+          <path class="connector" d="M570 100 L670 100" marker-end="url(#arrow)"/>
+
+          <!-- traveling dots -->
+          <circle class="travel-dot" r="4.5">
+            <animateMotion dur="2.2s" repeatCount="indefinite" path="M290 100 L390 100"/>
+          </circle>
+          <circle class="travel-dot" r="4.5">
+            <animateMotion dur="2.2s" begin="1.1s" repeatCount="indefinite" path="M570 100 L670 100"/>
+          </circle>
+          <circle class="travel-dot" r="3" opacity="0.6">
+            <animateMotion dur="2.2s" begin="0.55s" repeatCount="indefinite" path="M290 100 L390 100"/>
+          </circle>
+          <circle class="travel-dot" r="3" opacity="0.6">
+            <animateMotion dur="2.2s" begin="1.65s" repeatCount="indefinite" path="M570 100 L670 100"/>
+          </circle>
+
+          <!-- bottom labels -->
+          <text class="flow-sub" x="160" y="200" text-anchor="middle">creates</text>
+          <text class="flow-sub" x="480" y="200" text-anchor="middle" fill="#ff6bb5">picks · scores · gates</text>
+          <text class="flow-sub" x="800" y="200" text-anchor="middle">does the thing</text>
+        </svg>
+        <p class="thesis">
+          CREATE → LLM <span>·</span> PICK / SCORE / GATE → JEV <span>·</span> DO → CODE
+        </p>
+      </div>
+    </section>
+
+    <!-- SPEC STRIP -->
+    <section id="specs">
+      <p class="section-label reveal">Numbers that matter</p>
+      <h2 class="reveal reveal-delay-1">Hundreds of times cheaper<br>than a frontier yes/no.</h2>
+      <p class="section-copy reveal reveal-delay-2">
+        Vendor-reported latency and pricing. Output tokens are free — decisions stay cheap at scale.
+      </p>
+      <div class="spec-strip">
+        <div class="spec reveal reveal-delay-1">
+          <div class="num">~70–500 ms</div>
+          <div class="desc">Latency range</div>
+        </div>
+        <div class="spec reveal reveal-delay-2">
+          <div class="num">$0.042</div>
+          <div class="desc">Per 1M input tokens</div>
+        </div>
+        <div class="spec reveal reveal-delay-3">
+          <div class="num">$0</div>
+          <div class="desc">Output tokens · free</div>
+        </div>
+        <div class="spec reveal reveal-delay-4">
+          <div class="num">100×+</div>
+          <div class="desc">Cheaper / faster vs frontier Y/N</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- USE CASES -->
+    <section id="use">
+      <p class="section-label reveal">Where it lands</p>
+      <h2 class="reveal reveal-delay-1">Gates your agents already pretend<br>the LLM should answer.</h2>
+      <p class="section-copy reveal reveal-delay-2">
+        Short forks. Clear options. Evidence in state — not vibes in a prompt.
+      </p>
+      <div class="chips reveal reveal-delay-2">
+        <span class="chip">agent routing</span>
+        <span class="chip">publish gates</span>
+        <span class="chip">spam triage</span>
+        <span class="chip">quality score</span>
+        <span class="chip">browser next-action</span>
+      </div>
+    </section>
+
+    <footer>
+      <div class="credit">
+        built for <strong>theGreatest</strong><br>
+        TypeSafe · <a href="https://typesafe.ai">typesafe.ai</a>
+      </div>
+      <div class="links">
+        <span>Jev · System One decision layer</span>
+        <span>pink-black landing · monkeyteamvip/jev-brain</span>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var nodes = document.querySelectorAll('.reveal');
+      // Immediately mark hero + force-in after paint for headless reliability
+      document.querySelectorAll('.hero .reveal').forEach(function (n) {
+        n.classList.add('in');
+      });
+      if (!('IntersectionObserver' in window)) {
+        nodes.forEach(function (n) { n.classList.add('in'); });
+        return;
+      }
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            e.target.classList.add('in');
+            io.unobserve(e.target);
+          }
+        });
+      }, { threshold: 0.08, rootMargin: '0px 0px -20px 0px' });
+      nodes.forEach(function (n) { io.observe(n); });
+      // Safety: after 1.2s mark everything visible (covers odd IO / headless cases)
+      setTimeout(function () {
+        nodes.forEach(function (n) { n.classList.add('in'); });
+      }, 1200);
+    })();
+  </script>
+</body>
+</html>
